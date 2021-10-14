@@ -8,7 +8,10 @@ output: html_document
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
-## Use case: As a protal adminitrator, it is important for us to know the current status of repositories' API
+## Use case: aggreate current status of API and repository basic information
+
+As a protal adminitrator, it is important for us to know the current status of repositories' API. We would like to aggreate API related deatails, such like URL, API type and information about ths repository.
+
 ### Step 1: load packages
 
 The package **httr** includes the HTTP method GET, which will be used to request data from the re3data API. Responses from the redata API are returned in XML. **xml2** includes functions for working with XML, for example parsing or extracting content of specific elements. If necessary, install the packages before loading them.
@@ -24,9 +27,11 @@ library(xml2)
 
 ### Step 2: obtain URLs for further API queries
 
-The query parameters defined in the previous step can then be passed to the re3data API using **GET**.  
-The XML response is parsed using **read_XML**. XML elements or attributes can be identified using XPath syntax. The response from the re3data API includes URLs for further queries to the **/api/beta/repository** endpoint. These URLs can be identified with a simple XPath expression. All attributes matching the XPath syntax are identified with **xml_find_all**, and their content is extracted using **xml_text**.  
-The three functions are nested in the example below.
+Information on individual repositories can be extracted using the re3data ID. Therefore, re3data IDs of all repositories indexed in re3data need to be identified first, using the endpoint**/api/v1/repositories**. Details of the re3data APIs are outlined in the [re3data API documentaion](https://www.re3data.org/api/doc).
+
+The endpoint is queried using GET. The XML response is parsed using read_XML. XML elements or attributes can be identified using XPath syntax. All elements matching the XPath syntax for finding re3data IDs are identified with xml_find_first, and their content is extracted using xml_text. The three functions are nested in the example below.
+
+The endpoint**/api/v1/repository**provides detailed information about individual repositories that can be accessed via re3data IDs. Therefore, URLs for the next query are created by adding re3data IDs to the base URL.
 
 ```{r }
 re3data_request <- GET("http://re3data.org/api/v1/repositories")
@@ -37,34 +42,30 @@ URLs <- paste("https://www.re3data.org/api/v1/repository/", re3data_IDs, sep = "
 
 ### Step 3: define what information about the repositories should be requested
 
-The function **extract_repository_info** defined in the following code block points to and extracts the content of specific XML elements and attributes.This function will be used later to extract the spedified information from responses of the re3data API. Its basic structure is similar to the process of extracting the URLs outlined in step 3 above.  
-The XPath expressions defined here will extract the re3data IDs, names, URLs, and descriptions of the repositories. Results are stored in a named list that can be processed later.  
+The function **extract_repository_info** defined in the following code block points to and extracts the content of specific XML elements and attributes.This function will be used later to extract the spedified information from responses of the re3data API. Its basic structure is similar to the process of extracting the URLs outlined in step 2 above.  
+
+In our Metadata schema, API is an element, with attribute API type, API URL is store as the API element value. Please notice one repository could have multiple API type and multiple URLs. 
+
+The XPath expressions defined here will extract the re3data IDs, names, URLs, specific order of API URL and that oder of the API type. Results are stored in a named list that can be processed later.
 Depending on specific use cases, this function can be adapted to extract a different set of elements and attributes. For an overview of the metadata re3data offers, please refer to the documentation of the [re3data Metadata Schema](https://doi.org/10.2312/re3.006) (the API uses version 2.2 of the re3data Metadata Schema).  
+
 The function **xml_structure** from the package **xml2** can be very useful for inspecting the structure of XML objects and specifying XPath expressions.  
-Please note that in version 2.2 of the re3data Metadata Schema, the elements mentioned here have occurences of 1 or 0-1, meaning that for each repository, they occur once at most. For information on how to deal with elements that can occur multiple times, please refer to other examples for using the re3data API.
+
 
 ```{r}
-extract_repository_info <- function(url,count) {
+extract_repository_info <- function(url,APICount) {
   list(
    re3data_ID = xml_text(xml_find_all(repository_metadata_XML, "//r3d:re3data.orgIdentifier")),
     repositoryName = xml_text(xml_find_all(repository_metadata_XML, "//r3d:repositoryName")),
     repositoryUrl = xml_text(xml_find_all(repository_metadata_XML, "//r3d:repositoryURL")),
-    api = paste(unique(xml_text(xml_find_first(repository_metadata_XML,paste0("//r3d:api","[",as.character(count),"]"))))),
-    apiType = paste(unique(xml_text(xml_find_first(repository_metadata_XML,paste0("//r3d:api","[",as.character(count),"]","/@apiType")))))
-  )
-}
-```
-### Step 4: Set the iteration frequency
-```{r}
-count_api <- function(url) {
-  list(
-    api = paste(unique(xml_text(xml_find_all(repository_metadata_XML, "//r3d:api")))),
-    apiType = paste(unique(xml_text(xml_find_all(repository_metadata_XML, "//r3d:api/@apiType"))))
+    api = paste(unique(xml_text(xml_find_first(repository_metadata_XML,paste0("//r3d:api","[",as.character(APICount),"]"))))),
+    apiType = paste(unique(xml_text(xml_find_first(repository_metadata_XML,paste0("//r3d:api","[",as.character(APICount),"]","/@apiType")))))
   )
 }
 ```
 
-### Step 5: create a container for storing results
+
+### Step 4: create a container for storing results
 
 **repository_info** is a container for storing results of the API query. The dataframe has four columns corresponding to names of the list items defined by **extract_repository_info**.
 
@@ -76,22 +77,23 @@ colnames(repository_info) <- c("re3data_ID", "repositoryName", "repositoryUrl","
 
 ```
 
-### Step 6: gather detailed information about repositories
+### Step 5: gather detailed information about repositories
 
-After preparing the list of URLs, the extracting function and the container for results, these components can be put together. The code block below iterates through the list of URLs using a for-loop. For each repository, data is requested from the re3data API using **GET**. The XML response is parsed with **read_xml** before **extract_repository_info** is called. The results are then appended as a new row to **repository_info**.
+After preparing the list of URLs, the extracting function and the container for results, these components can be put together. The code block below iterates through the list of URLs using a for-loop. For each repository, data is requested from the re3data API using **GET**. The XML response is parsed with **read_xml**. Xpath expression to find all API, and count the items of API, which this repository contain. If Api count is more than once, then **extract_repository_info** is called. The results are then appended as a new row to **repository_info**.
+
 
 ```{r}
 for (url in URLs) {
   repository_metadata_request <- GET(url)
   repository_metadata_XML <-read_xml(repository_metadata_request) 
-  counts<-count_api(url)
-  count<-length(counts)
-  if(count>0){
-  for(i in c(1:count)){
-    results_list <- extract_repository_info(repository_metadata_XML,i)
-    repository_info <- rbind(repository_info, results_list)    
-  }}else next
-
+  API_items<- paste(unique(xml_text(xml_find_all(repository_metadata_XML, "//r3d:api"))))
+  APICount<-length(API_items)
+  if(APICount>0){
+    for(i in c(1:APICount)){
+      results_list <- extract_repository_info(repository_metadata_XML,i)
+      repository_info <- rbind(repository_info, results_list)    
+    }}else next
+  
 }
 
 ```
