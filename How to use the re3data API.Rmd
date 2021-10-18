@@ -14,7 +14,7 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ### Step 1: load packages
 
-The package **httr** includes the HTTP method GET, which will be used to request data from the re3data API. Responses from the redata API are returned in XML. **xml2** includes functions for working with XML, for example parsing or extracting content of specific elements. If necessary, install the packages before loading them.
+The package **httr** includes the HTTP method GET method, which will be used to request data from the re3data API. Responses from the re3data API are returned in XML. **xml2** includes functions for working with XML, for example parsing or extracting content of specific elements. If necessary, install the packages before loading them.
 
 ```{r load-packages, results='hide', message=FALSE, warning=FALSE}
 #install.packages("htttr")
@@ -31,9 +31,9 @@ library(tidyverse)
 
 ### Step 2: obtain URLs for further API queries
 
-Information on individual repositories can be extracted using the re3data ID. Therefore, re3data IDs of all repositories indexed in re3data need to be identified first, using the endpoint**/api/v1/repositories**. Details of the re3data APIs are outlined in the [re3data API documentaion](https://www.re3data.org/api/doc).
+Information on individual repositories can be extracted using the re3data ID. Therefore, re3data IDs of all repositories indexed in re3data need to be identified first, using the endpoint**/api/v1/repositories**. Details of the re3data APIs are outlined in the [re3data API documentation](https://www.re3data.org/api/doc).
 
-The endpoint is queried using GET. The XML response is parsed using read_XML. XML elements or attributes can be identified using XPath syntax. All elements matching the XPath syntax for finding re3data IDs are identified with xml_find_first, and their content is extracted using xml_text. The three functions are nested in the example below.
+The endpoint is queried using GET method. The XML response is parsed using read_XML. XML elements or attributes can be identified using XPath syntax. All elements matching the XPath syntax for finding re3data IDs are identified with **xml_find_all**, and their content is extracted using xml_text. The three functions are nested in the example below.
 
 The endpoint**/api/v1/repository**provides detailed information about individual repositories that can be accessed via re3data IDs. Therefore, URLs for the next query are created by adding re3data IDs to the base URL.
 
@@ -50,20 +50,20 @@ The function **extract_repository_info** defined in the following code block poi
 
 In our Metadata schema, *api* (the API endpoint) is an element with the attribute *apiType*. Please note that one repository can offer multiple APIs, and even several API types. 
 
-The XPath expressions defined here will extract the re3data IDs, names, URLs, API endpoints and AOI types in their specific order (using the parameter *APICount*). Results are stored in a named list that can be processed later.
+The XPath expressions defined here will extract the re3data IDs, names, URLs, API endpoints and API types in their specific order (using the parameter *API_index*). Results are stored in a named list that can be processed later.
 Depending on specific use cases, this function can be adapted to extract a different set of elements and attributes. For an overview of the metadata re3data offers, please refer to the documentation of the [re3data Metadata Schema](https://doi.org/10.2312/re3.006) (the API uses version 2.2 of the re3data Metadata Schema).  
 
 The function **xml_structure** from the package **xml2** can be very useful for inspecting the structure of XML objects and specifying XPath expressions.  
 
 
 ```{r}
-extract_repository_info <- function(url, APICount) {
+extract_repository_info <- function(url, API_index) {
   list(
    re3data_ID = xml_text(xml_find_all(repository_metadata_XML, "//r3d:re3data.orgIdentifier")),
     repositoryName = xml_text(xml_find_all(repository_metadata_XML, "//r3d:repositoryName")),
     repositoryUrl = xml_text(xml_find_all(repository_metadata_XML, "//r3d:repositoryURL")),
-    API = paste(unique(xml_text(xml_find_first(repository_metadata_XML,paste0("//r3d:api","[",as.character(APICount),"]"))))),
-    APIType = paste(unique(xml_text(xml_find_first(repository_metadata_XML,paste0("//r3d:api","[",as.character(APICount),"]","/@apiType")))))
+    API = paste(unique(xml_text(xml_find_all(repository_metadata_XML,paste0("//r3d:api","[",as.character(API_index),"]"))))),
+    APIType = paste(unique(xml_text(xml_find_all(repository_metadata_XML,paste0("//r3d:api","[",as.character(API_index),"]","/@apiType")))))
   )
 }
 ```
@@ -71,7 +71,7 @@ extract_repository_info <- function(url, APICount) {
 
 ### Step 4: create a container for storing results
 
-**repository_info** is a container for storing results of the API query. The dataframe has four columns corresponding to names of the list items defined by **extract_repository_info**.
+**repository_info** is a container for storing results of the API query. The dataframe has five columns corresponding to names of the list items defined by **extract_repository_info**.
 
 ```{r }
 
@@ -83,7 +83,7 @@ colnames(repository_info) <- c("re3data_ID", "repositoryName", "repositoryUrl", 
 
 ### Step 5: gather detailed information about repositories
 
-After preparing the list of URLs, the extracting function and the container for results, these components can be put together. The code block below iterates through the list of URLs using a for-loop. For each repository, data is requested from the re3data API using **GET**. The XML response is parsed with **read_xml**. An Xpath expression is used to count how often the element *api* occurs for each repository. If *APICount* > 1, the function **extract_repository_info** is called. The results are then appended as a new row to **repository_info**.
+After preparing the list of URLs (in Step2), the extracting function and the container for results, these components can be put together. The code block below iterates through the list of URLs using a for-loop. For each repository, data is requested from the re3data API using **GET**. The XML response is parsed with **read_xml**. An Xpath expression is used to count how often the element *api* occurs for each repository. If *APICount* > 0, the function **extract_repository_info** is called. The results are then appended as a new row to **repository_info**.
 
 
 ```{r}
@@ -104,7 +104,7 @@ for (url in URLs) {
 
 ### Results
 
-Results are now stored in **repository_info**. They can be inspected using **head**, visualized or stored locally with **write.csv**.
+Results are now stored in **repository_info**. They can be inspected using **head**, or further visualized (Step 6) or stored locally with **write.csv**.
 
 ```{r}
 head(repository_info)
@@ -112,7 +112,7 @@ head(repository_info)
 ```
 ### Step 6: visualize the results
 
-Now that the results are processed, they can be visualized. The example below firstly group data by API Type and count the frequency of repository within each group, and order the API type by occurrence of API type  descendingly. And then generate a bar chart showing the frequency of API Type in re3data, from the most frequent to the least frequent. 
+Now that the results are processed, they can be visualized. The example below firstly group data by API Type and count the frequency of repository within each group, then order the API type by occurrence of API type in descending order. And then generate a bar chart showing the frequency of API Type in re3data, from the most frequent API Type to the least frequent one. 
 Please note that, as mentioned above, type has an occurrence of 1-n. Some repositories are assigned more than one API type, for example REST and SWORD.
 
 ```{r}
